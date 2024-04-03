@@ -12,7 +12,7 @@ class Config:
     GRID_STEP_SIZE = 0.0001
 
     # Define the frequency at which to check for filled orders and the order status to look for
-    CHECK_ORDERS_FREQUENCY = 2
+    CHECK_ORDERS_FREQUENCY = 1
     FILLED_ORDER_STATUS = 'filled'
 
     # Define the log file to use for logging trading information
