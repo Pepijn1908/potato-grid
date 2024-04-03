@@ -17,13 +17,13 @@ logger = logging.getLogger()
 logger.addHandler(file_handler)
 
 # create a Binance exchange object using the API and secret keys
-exchange = ccxt.binance({
+exchange = ccxt.deribit({
     'apiKey': keys.API_KEY,
     'secret': keys.SECRET_KEY
 })
 
 # use the Binance testnet
-exchange.set_sandbox_mode(True)
+exchange.set_sandbox_mode(False)
 
 # get the latest ticker information for the trading symbol
 ticker = exchange.fetch_ticker(Config.SYMBOL)
@@ -81,7 +81,7 @@ def init():
 # main trading logic
 def main():
     logger.info('=> Starting grid trading bot')
-    initial_balance = exchange.fetch_balance()['USDT']
+    initial_balance = exchange.fetch_balance()
     logger.info(f"=> BALANCE: {initial_balance} USDT")
 
     global buy_orders, sell_orders
@@ -108,9 +108,9 @@ def main():
 
         # check if buy order is closed
         for buy_order in buy_orders:
-            logger.info("=> checking buy order {}".format(buy_order['orderId']))
+            logger.info("=> checking buy order {}".format(buy_order['order_id']))
             try:
-                order = exchange.fetch_order(buy_order['orderId'], Config.SYMBOL)
+                order = exchange.fetch_order(buy_order['order_id'], Config.SYMBOL)
             except Exception as e:
                 logger.error(e)
                 logger.warning("=> request failed, retrying")
@@ -118,8 +118,8 @@ def main():
                 
             order_info = order['info']
 
-            if order_info['status'] == Config.FILLED_ORDER_STATUS:
-                closed_order_ids.append(order_info['orderId'])
+            if order_info['order_state'] == Config.FILLED_ORDER_STATUS:
+                closed_order_ids.append(order_info['order_id'])
                 logger.info("=> buy order executed at {}".format(order_info['price']))
                 new_sell_price = float(order_info['price']) + Config.GRID_STEP_SIZE
                 # logger.info("=> creating new limit sell order at {}".format(new_sell_price))
@@ -129,9 +129,9 @@ def main():
 
         # check if sell order is closed
         for sell_order in sell_orders:
-            logger.info("=> checking sell order {}".format(sell_order['orderId']))
+            logger.info("=> checking sell order {}".format(sell_order['order_id']))
             try:
-                order = exchange.fetch_order(sell_order['orderId'], Config.SYMBOL)
+                order = exchange.fetch_order(sell_order['order_id'], Config.SYMBOL)
             except Exception as e:
                 logger.error(e)
                 logger.warning("=> request failed, retrying")
@@ -139,10 +139,10 @@ def main():
                 
             order_info = order['info']
 
-            if order_info['status'] == Config.FILLED_ORDER_STATUS:
-                closed_order_ids.append(order_info['orderId'])
+            if order_info['order_state'] == Config.FILLED_ORDER_STATUS:
+                closed_order_ids.append(order_info['order_id'])
                 logger.info("=> sell order executed at {}".format(order_info['price']))
-                logger.info(f"=> BALANCE: {exchange.fetch_balance()['USDT']} USDT")
+                logger.info(f"=> BALANCE: {exchange.fetch_balance()} USDT")
                 new_buy_price = float(order_info['price']) - Config.GRID_STEP_SIZE
                 # logger.info("=> creating new limit buy order at {}".format(new_buy_price))
                 create_buy_order(Config.SYMBOL, Config.POSITION_SIZE, new_buy_price)
@@ -150,8 +150,8 @@ def main():
             time.sleep(Config.CHECK_ORDERS_FREQUENCY)
 
         # remove closed orders from list
-        buy_orders = [buy_order for buy_order in buy_orders if buy_order['orderId'] not in closed_order_ids]
-        sell_orders = [sell_order for sell_order in sell_orders if sell_order['orderId'] not in closed_order_ids]
+        buy_orders = [buy_order for buy_order in buy_orders if buy_order['order_id'] not in closed_order_ids]
+        sell_orders = [sell_order for sell_order in sell_orders if sell_order['order_id'] not in closed_order_ids]
         
         if closed_order_ids:
             # write updated order logs to file
