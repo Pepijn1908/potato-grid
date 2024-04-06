@@ -35,23 +35,21 @@ initial_balance = None
 
 # function to write the current order data to a JSON file
 def write_order_log(new_data, side):
-    with open(Config.ORDER_LOG, 'r+') as file:
-        try:
-            # load existing order data from the file
+    # Attempt to read the existing data first
+    try:
+        with open(Config.ORDER_LOG, 'r') as file:
             file_data = json.load(file)
-        except ValueError:
-            # if the file is empty or invalid JSON, start with empty lists
-            file_data = {
-                'buy': [],
-                'sell': []
-            }
+    except (ValueError, FileNotFoundError):
+        # If the file is empty, not found, or contains invalid JSON, start with empty lists
+        file_data = {'buy': [], 'sell': []}
 
-        # update the relevant list with the new data
-        file_data[side] = new_data
+    # Update the relevant list with the new data
+    file_data[side] = new_data
 
-        # overwrite the file with the updated order data
-        file.seek(0)
-        json.dump(file_data, file)
+    # Open the file in write mode to overwrite with updated order data
+    # This eliminates the possibility of leftover data from previous writes
+    with open(Config.ORDER_LOG, 'w') as file:
+        json.dump(file_data, file, indent=4)  # Using indent for better readability of the JSON file
 
 # function to create a limit buy order at the given price
 def create_buy_order(symbol, size, price):
@@ -92,17 +90,25 @@ def main():
     
     if not buy_orders:
         # place initial buy orders based on mid_price
-        for i in range(Config.NUM_BUY_GRID_LINES):
+        grid_lines = range(Config.NUM_SELL_GRID_LINES)
+        for i in grid_lines:
             price = mid_price - (Config.GRID_STEP_SIZE * (i + 1))
-            create_buy_order(Config.SYMBOL, Config.POSITION_SIZE, price)
+            if price < ticker['bid']:
+                create_buy_order(Config.SYMBOL, Config.POSITION_SIZE, price)
+            #else:
+            #    grid_lines = grid_lines.stop + 1
         
         # write order logs to file
         write_order_log(buy_orders, 'buy')
 
         # place initial sell orders based on mid_price
-        for i in range(Config.NUM_SELL_GRID_LINES):
+        grid_lines = range(Config.NUM_SELL_GRID_LINES)
+        for i in grid_lines:
             price = mid_price + (Config.GRID_STEP_SIZE * (i + 1))
-            create_sell_order(Config.SYMBOL, Config.POSITION_SIZE, price)
+            if price > ticker['ask']:
+                create_sell_order(Config.SYMBOL, Config.POSITION_SIZE, price)
+            #else:
+            #    grid_lines.stop = grid_lines.stop + 1
 
         # write order logs to file
         write_order_log(sell_orders, 'sell')
