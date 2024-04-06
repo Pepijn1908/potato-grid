@@ -86,29 +86,34 @@ def main():
 
     global buy_orders, sell_orders
     
+    # Calculate the mid-price as the average of the bid and ask prices
+    mid_price = 1.0 #(ticker['bid'] + ticker['ask']) / 2
+    logger.info(f"Mid Price: {mid_price}")
+    
     if not buy_orders:
-        # place inital buy orders
+        # place initial buy orders based on mid_price
         for i in range(Config.NUM_BUY_GRID_LINES):
-            price = ticker['bid'] - (Config.GRID_STEP_SIZE * (i + 1))
+            price = mid_price - (Config.GRID_STEP_SIZE * (i + 1))
             create_buy_order(Config.SYMBOL, Config.POSITION_SIZE, price)
         
         # write order logs to file
         write_order_log(buy_orders, 'buy')
 
-        # place initial sell orders
+        # place initial sell orders based on mid_price
         for i in range(Config.NUM_SELL_GRID_LINES):
-            price = ticker['bid'] + (Config.GRID_STEP_SIZE * (i + 1))
+            price = mid_price + (Config.GRID_STEP_SIZE * (i + 1))
             create_sell_order(Config.SYMBOL, Config.POSITION_SIZE, price)
 
         # write order logs to file
         write_order_log(sell_orders, 'sell')
+
 
     while True:
         closed_order_ids = []
 
         # check if buy order is closed
         for buy_order in buy_orders:
-            logger.info("=> checking buy order {}".format(buy_order['order_id']))
+            #logger.info("=> checking buy order {}".format(buy_order['order_id']))
             try:
                 order = exchange.fetch_order(buy_order['order_id'], Config.SYMBOL)
             except Exception as e:
@@ -123,13 +128,14 @@ def main():
                 logger.info("=> buy order executed at {}".format(order_info['price']))
                 new_sell_price = float(order_info['price']) + Config.GRID_STEP_SIZE
                 # logger.info("=> creating new limit sell order at {}".format(new_sell_price))
-                create_sell_order(Config.SYMBOL, Config.POSITION_SIZE, new_sell_price)
+                if new_sell_price > mid_price:
+                    create_sell_order(Config.SYMBOL, Config.POSITION_SIZE, new_sell_price)
 
             time.sleep(Config.CHECK_ORDERS_FREQUENCY)
 
         # check if sell order is closed
         for sell_order in sell_orders:
-            logger.info("=> checking sell order {}".format(sell_order['order_id']))
+            #logger.info("=> checking sell order {}".format(sell_order['order_id']))
             try:
                 order = exchange.fetch_order(sell_order['order_id'], Config.SYMBOL)
             except Exception as e:
@@ -145,7 +151,8 @@ def main():
                 logger.info(f"=> BALANCE: {exchange.fetch_balance()} USDT")
                 new_buy_price = float(order_info['price']) - Config.GRID_STEP_SIZE
                 # logger.info("=> creating new limit buy order at {}".format(new_buy_price))
-                create_buy_order(Config.SYMBOL, Config.POSITION_SIZE, new_buy_price)
+                if new_buy_price < mid_price:
+                    create_buy_order(Config.SYMBOL, Config.POSITION_SIZE, new_buy_price)
 
             time.sleep(Config.CHECK_ORDERS_FREQUENCY)
 
@@ -164,7 +171,7 @@ def main():
             exchange.cancel_all_orders(Config.SYMBOL)
             
             logger.info(f"=> Initial BALANCE: {initial_balance} USDT")
-            logger.info(f"=> Final BALANCE: {exchange.fetch_balance()['USDT']} USDT")
+            logger.info(f"=> Final BALANCE: {exchange.fetch_balance()} USDT")
             
             sys.exit("stopping bot, nothing left to sell")
 
