@@ -76,50 +76,27 @@ def init():
         # if the file doesn't exist, create an empty one
         open(Config.ORDER_LOG, 'a').close()
 
-# main trading logic
 def main():
     logger.info('=> Starting grid trading bot')
     initial_balance = exchange.fetch_balance()
     logger.info(f"=> BALANCE: {initial_balance} USDT")
 
     global buy_orders, sell_orders
-    
-    # Calculate the mid-price as the average of the bid and ask prices
-    mid_price = 1.0 #(ticker['bid'] + ticker['ask']) / 2
-    logger.info(f"Mid Price: {mid_price}")
-    
-    if not buy_orders:
-        # place initial buy orders based on mid_price
-        grid_lines = range(Config.NUM_SELL_GRID_LINES)
-        for i in grid_lines:
-            price = mid_price - (Config.GRID_STEP_SIZE * (i + 1))
-            if price < ticker['bid']:
-                create_buy_order(Config.SYMBOL, Config.POSITION_SIZE, price)
-            #else:
-            #    grid_lines = grid_lines.stop + 1
-        
-        # write order logs to file
-        write_order_log(buy_orders, 'buy')
-
-        # place initial sell orders based on mid_price
-        grid_lines = range(Config.NUM_SELL_GRID_LINES)
-        for i in grid_lines:
-            price = mid_price + (Config.GRID_STEP_SIZE * (i + 1))
-            if price > ticker['ask']:
-                create_sell_order(Config.SYMBOL, Config.POSITION_SIZE, price)
-            #else:
-            #    grid_lines.stop = grid_lines.stop + 1
-
-        # write order logs to file
-        write_order_log(sell_orders, 'sell')
-
 
     while True:
+        # Fetch the latest ticker information to recalculate the mid-price
+        ticker = exchange.fetch_ticker(Config.SYMBOL)
+        mid_price = 1#(ticker['bid'] + ticker['ask']) / 2
+        logger.info(f"Mid Price: {mid_price}")
+
+        # Adjust buy and sell orders based on the new mid-price
+        adjust_orders(mid_price)
+
         closed_order_ids = []
 
-        # check if buy order is closed
+        # Check if buy order is closed
         for buy_order in buy_orders:
-            #logger.info("=> checking buy order {}".format(buy_order['order_id']))
+            logger.info("=> checking buy order {}".format(buy_order['order_id']))
             try:
                 order = exchange.fetch_order(buy_order['order_id'], Config.SYMBOL)
             except Exception as e:
@@ -133,15 +110,12 @@ def main():
                 closed_order_ids.append(order_info['order_id'])
                 logger.info("=> buy order executed at {}".format(order_info['price']))
                 new_sell_price = float(order_info['price']) + Config.GRID_STEP_SIZE
-                # logger.info("=> creating new limit sell order at {}".format(new_sell_price))
                 if new_sell_price > mid_price:
                     create_sell_order(Config.SYMBOL, Config.POSITION_SIZE, new_sell_price)
 
-            time.sleep(Config.CHECK_ORDERS_FREQUENCY)
-
-        # check if sell order is closed
+        # Check if sell order is closed
         for sell_order in sell_orders:
-            #logger.info("=> checking sell order {}".format(sell_order['order_id']))
+            logger.info("=> checking sell order {}".format(sell_order['order_id']))
             try:
                 order = exchange.fetch_order(sell_order['order_id'], Config.SYMBOL)
             except Exception as e:
@@ -154,32 +128,53 @@ def main():
             if order_info['order_state'] == Config.FILLED_ORDER_STATUS:
                 closed_order_ids.append(order_info['order_id'])
                 logger.info("=> sell order executed at {}".format(order_info['price']))
-                logger.info(f"=> BALANCE: {exchange.fetch_balance()} USDT")
                 new_buy_price = float(order_info['price']) - Config.GRID_STEP_SIZE
-                # logger.info("=> creating new limit buy order at {}".format(new_buy_price))
                 if new_buy_price < mid_price:
                     create_buy_order(Config.SYMBOL, Config.POSITION_SIZE, new_buy_price)
 
-            time.sleep(Config.CHECK_ORDERS_FREQUENCY)
-
-        # remove closed orders from list
+        # Remove closed orders from the list
         buy_orders = [buy_order for buy_order in buy_orders if buy_order['order_id'] not in closed_order_ids]
         sell_orders = [sell_order for sell_order in sell_orders if sell_order['order_id'] not in closed_order_ids]
         
         if closed_order_ids:
-            # write updated order logs to file
+            # Write updated order logs to file
             write_order_log(buy_orders, 'buy')
             write_order_log(sell_orders, 'sell')
 
-        # exit if no sell orders are left
+        # Exit if no sell orders are left
         if len(sell_orders) == 0:
-            # cancel all open buy orders
+            # Cancel all open buy orders
             exchange.cancel_all_orders(Config.SYMBOL)
             
             logger.info(f"=> Initial BALANCE: {initial_balance} USDT")
             logger.info(f"=> Final BALANCE: {exchange.fetch_balance()} USDT")
             
-            sys.exit("stopping bot, nothing left to sell")
+            sys.exit("Stopping bot, nothing left to sell")
+
+        time.sleep(Config.CHECK_ORDERS_FREQUENCY)
+
+def adjust_orders(mid_price):
+    global buy_orders, sell_orders
+
+    # Fetch the latest ticker information to get current bid and ask prices
+    ticker = exchange.fetch_ticker(Config.SYMBOL)
+    current_bid = ticker['bid']
+    current_ask = ticker['ask']
+
+    # Adjust buy orders: place below the current bid and mid_price
+    for i in range(Config.NUM_BUY_GRID_LINES):
+        price = mid_price - (Config.GRID_STEP_SIZE * (i + 1))
+        if price < current_bid and not any(order for order in buy_orders if float(order['price']) == price):
+            create_buy_order(Config.SYMBOL, Config.POSITION_SIZE, price)
+
+    # Adjust sell orders: place above the current ask and mid_price
+    for i in range(Config.NUM_SELL_GRID_LINES):
+        price = mid_price + (Config.GRID_STEP_SIZE * (i + 1))
+        if price > current_ask and not any(order for order in sell_orders if float(order['price']) == price):
+            create_sell_order(Config.SYMBOL, Config.POSITION_SIZE, price)
+
+    # Optionally, implement logic to cancel orders that are no longer correctly positioned
+    # This might involve checking the current list of orders and comparing their prices against the current bid/ask
 
 if __name__ == "__main__":
     init()
